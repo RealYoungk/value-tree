@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OMC / Claude
+.omc/
+.claude/
+
+# Flutter build artifacts
+**/build/
+**/.dart_tool/
