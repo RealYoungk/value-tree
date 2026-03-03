@@ -1,6 +1,5 @@
 import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
-import { xai } from "@ai-sdk/xai";
 import {
   valuationSchema,
   intentSchema,
@@ -15,18 +14,13 @@ import {
   buildAnswerPrompt,
   buildUpdatePrompt,
 } from "./prompts";
+import { formatCurrencyUnitsInText, formatKrwFromEok } from "@/shared/utils/currency";
 
 const USE_MOCK = process.env.USE_MOCK === "true";
 
-const MODELS = {
-  google: () => google(process.env.GOOGLE_MODEL ?? "gemini-2.0-flash"),
-  xai: () => xai(process.env.XAI_MODEL ?? "grok-3-mini-fast"),
-} as const;
+const MODEL_NAME = process.env.GOOGLE_MODEL ?? "gemini-2.5-flash";
 
-type ModelProvider = keyof typeof MODELS;
-
-const provider = (process.env.MODEL_PROVIDER ?? "xai") as ModelProvider;
-const model = MODELS[provider]();
+const model = google(MODEL_NAME);
 
 export interface ChatRequest {
   message: string;
@@ -83,7 +77,7 @@ function getMockValuation(companyName: string): Valuation {
                   unit: "억원",
                   formula: null,
                   description:
-                    "2025E 메모리 영업이익. 컨센서스 범위 25~30조원 중 보수적으로 27조원 채택. DRAM 비트그로스 둔화 가능성과 NAND 재고 조정 리스크를 반영.",
+                    "2025E 메모리 영업이익. 컨센서스 범위 25~30조원을 기준으로 중앙값에 가까운 27조원을 채택. DRAM 비트그로스 둔화 가능성과 NAND 재고 조정 리스크를 반영.",
                   sources: [],
                   children: [],
                 },
@@ -163,8 +157,8 @@ function getMockValuation(companyName: string): Valuation {
               value: 7,
               unit: "배",
               formula: null,
-              description:
-                "애플 PER 30배 대비 대폭 할인. 하드웨어 중심 사업 구조, 생태계 락인 약함, 중국 업체 추격 리스크 반영. 하드웨어 피어(샤오미 등) 8~12배 대비로도 보수적.",
+                  description:
+                    "애플 PER 30배 대비 할인. 하드웨어 중심 사업 구조, 생태계 락인 약함, 중국 업체 추격 리스크 반영. 하드웨어 피어(샤오미 등) 8~12배 범위의 하단 수준을 적용.",
               sources: [],
               children: [],
             },
@@ -211,7 +205,7 @@ function getMockValuation(companyName: string): Valuation {
           unit: "억원",
           formula: null,
           description:
-            "하만(차량 인포테인먼트), 의료기기 등. 전체 기업가치에서 비중은 작으나 전장 시장 성장에 따른 옵셔널리티 존재. 별도 DCF 없이 장부가 기준 보수적 평가.",
+            "하만(차량 인포테인먼트), 의료기기 등. 전체 기업가치에서 비중은 작으나 전장 시장 성장에 따른 옵셔널리티 존재. 별도 DCF 대신 가시성이 높은 장부가 기준을 적용.",
           sources: [],
           children: [],
         },
@@ -262,7 +256,9 @@ async function routeIntent(req: ChatRequest): Promise<Intent> {
 async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
   if (USE_MOCK) {
     if (req.currentValuation) {
-      return { message: `${req.currentValuation.companyName}의 현재 적정가치는 ${req.currentValuation.tree.value.toLocaleString()}억원으로, 시가총액 ${req.currentValuation.companyMarketCap.toLocaleString()}억원 대비 ${(((req.currentValuation.tree.value - req.currentValuation.companyMarketCap) / req.currentValuation.companyMarketCap) * 100).toFixed(1)}% 업사이드가 있습니다. SOTP 기준 반도체 사업부가 전체 가치의 약 70%를 차지합니다.` };
+      return {
+        message: `${req.currentValuation.companyName}의 현재 적정가치는 ${formatKrwFromEok(req.currentValuation.tree.value)}으로, 시가총액 ${formatKrwFromEok(req.currentValuation.companyMarketCap)} 대비 ${(((req.currentValuation.tree.value - req.currentValuation.companyMarketCap) / req.currentValuation.companyMarketCap) * 100).toFixed(1)}% 업사이드가 있습니다. SOTP 기준 반도체 사업부가 전체 가치의 약 70%를 차지합니다.`,
+      };
     }
     return { message: "안녕하세요! 회사명을 입력하시면 AI 밸류에이션 분석을 시작합니다. 예: 삼성전자, 카카오, 네이버" };
   }
@@ -277,7 +273,7 @@ async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
     prompt: buildAnswerPrompt(req.message, req.history, treeJson),
   });
 
-  return { message: text };
+  return { message: formatCurrencyUnitsInText(text) };
 }
 
 // --- Analyze: new valuation (2-step: research → structure) ---
