@@ -1,3 +1,4 @@
+import { Plus, LogOut } from "lucide-react";
 import { useSessionStore } from "@/entities/session";
 import { useInvestorStore } from "@/entities/investor";
 import { createClient } from "@/shared/supabase/client";
@@ -24,16 +25,14 @@ export function SessionsSidebarContentView({
   return (
     <>
       <div className="flex items-center justify-between px-4 py-4">
-        <h1 className="text-lg font-bold tracking-tight">ValuTree</h1>
+        <h1 className="text-lg font-bold tracking-tight">ValueTree</h1>
         <button
           type="button"
           onClick={onNewSession}
           className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-600"
           title="새 분석"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
+          <Plus className="h-4 w-4" />
         </button>
       </div>
 
@@ -82,27 +81,27 @@ export function SessionsSidebarContentView({
       </div>
 
       {/* Profile & Logout / Login */}
-      <div className="border-t border-zinc-200 px-4 py-3">
+      <div className="border-t border-zinc-200 px-4 py-4">
         {investor ? (
-          <div className="flex min-h-[46px] items-center gap-3">
+          <div className="flex h-[52px] items-center gap-3">
             {investor.avatarUrl ? (
               <img
                 src={investor.avatarUrl}
                 alt=""
-                className="h-8 w-8 rounded-full"
+                className="h-9 w-9 rounded-full shadow-sm"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium text-zinc-600">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-200 text-sm font-bold text-zinc-600 shadow-inner">
                 {(investor.name ?? investor.email)[0].toUpperCase()}
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-zinc-700">
+              <div className="truncate text-sm font-bold text-zinc-800">
                 {investor.name ?? investor.email}
               </div>
               {investor.name && (
-                <div className="truncate text-xs text-zinc-400">
+                <div className="truncate text-[11px] text-zinc-400 font-medium">
                   {investor.email}
                 </div>
               )}
@@ -110,14 +109,10 @@ export function SessionsSidebarContentView({
             <button
               type="button"
               onClick={logout}
-              className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-600"
+              className="rounded-lg p-2 text-zinc-400 transition-all hover:bg-zinc-200 hover:text-zinc-600 active:scale-95"
               title="로그아웃"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
+              <LogOut className="h-4 w-4" />
             </button>
           </div>
         ) : (
@@ -127,12 +122,14 @@ export function SessionsSidebarContentView({
               const supabase = createClient();
               supabase.auth.signInWithOAuth({
                 provider: "google",
-                options: { redirectTo: `${location.origin}/auth/callback` },
+                options: {
+                  redirectTo: `${location.origin}/auth/callback`,
+                },
               });
             }}
-            className="flex min-h-[46px] w-full items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+            className="flex h-[52px] w-full items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold text-zinc-700 shadow-sm transition-all hover:bg-zinc-50 active:scale-[0.98]"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24">
+            <svg width="18" height="18" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />

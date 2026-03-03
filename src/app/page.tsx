@@ -29,7 +29,9 @@ function LoginDialog({
     const supabase = createClient();
     supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${location.origin}/auth/callback`,
+      },
     });
   }
 
@@ -77,6 +79,9 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [treePanelOpen, setTreePanelOpen] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [treeWidth, setTreeWidth] = useState(550);
+  const isResizing = useRef(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -227,6 +232,37 @@ export default function ChatPage() {
     setSidebarOpen(false);
   }
 
+  // --- Resizing Logic ---
+  const startResizing = useCallback(() => {
+    isResizing.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    isResizing.current = false;
+    document.body.style.cursor = "default";
+    document.body.style.userSelect = "auto";
+  }, []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (!isResizing.current) return;
+    const newWidth = window.innerWidth - e.clientX;
+    // Min 350px, Max 75% of screen
+    if (newWidth > 350 && newWidth < window.innerWidth * 0.75) {
+      setTreeWidth(newWidth);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
+
   // Show spinner while checking auth
   if (investorLoading) {
     return (
@@ -246,23 +282,34 @@ export default function ChatPage() {
           onCloseSidebar={() => setSidebarOpen(false)}
         />
 
-        <div className="flex flex-1 flex-col min-w-0">
+        <div className="flex flex-1 flex-col min-w-0 bg-white">
           <AppBarView
             onOpenSidebar={() => setSidebarOpen(true)}
             onOpenTree={() => setTreePanelOpen(true)}
           />
-          <ChatView
-            input={input}
-            onInputChange={setInput}
-            onSubmit={handleSubmit}
-            scrollRef={scrollRef}
-            inputRef={inputRef}
-          />
+          <main className="flex-1 flex flex-col overflow-hidden">
+            <ChatView
+              input={input}
+              onInputChange={setInput}
+              onSubmit={handleSubmit}
+              scrollRef={scrollRef}
+              inputRef={inputRef}
+            />
+          </main>
+        </div>
+
+        {/* Resizer bar */}
+        <div
+          onMouseDown={startResizing}
+          className="hidden lg:flex w-1 cursor-col-resize items-center justify-center bg-zinc-100 transition-colors hover:bg-zinc-300 group"
+        >
+          <div className="h-8 w-[1px] bg-zinc-300 group-hover:bg-zinc-400" />
         </div>
 
         <TreePanelView
           treePanelOpen={treePanelOpen}
           onClose={() => setTreePanelOpen(false)}
+          width={treeWidth}
         />
       </div>
 

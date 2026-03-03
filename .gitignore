@@ -15,6 +15,7 @@
 **/.dart_tool/
 .next/
 node_modules/
+*.tsbuildinfo
 
 # Env
 .env*.local
