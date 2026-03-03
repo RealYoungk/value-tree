@@ -10,6 +10,11 @@
 .omc/
 .claude/
 
-# Flutter build artifacts
+# Build
 **/build/
 **/.dart_tool/
+.next/
+node_modules/
+
+# Env
+.env*.local
