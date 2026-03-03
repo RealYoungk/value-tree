@@ -1,4 +1,6 @@
 import { useSessionStore } from "@/entities/session";
+import { useInvestorStore } from "@/entities/investor";
+import { createClient } from "@/shared/supabase/client";
 import type { Valuation } from "@/entities/session";
 
 interface SessionsSidebarContentViewProps {
@@ -16,6 +18,8 @@ export function SessionsSidebarContentView({
 }: SessionsSidebarContentViewProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const investor = useInvestorStore((s) => s.investor);
+  const logout = useInvestorStore((s) => s.logout);
 
   return (
     <>
@@ -74,6 +78,67 @@ export function SessionsSidebarContentView({
           <div className="px-3 py-8 text-center text-xs text-zinc-400">
             분석 결과가 여기에 쌓입니다
           </div>
+        )}
+      </div>
+
+      {/* Profile & Logout / Login */}
+      <div className="border-t border-zinc-200 px-4 py-3">
+        {investor ? (
+          <div className="flex min-h-[46px] items-center gap-3">
+            {investor.avatarUrl ? (
+              <img
+                src={investor.avatarUrl}
+                alt=""
+                className="h-8 w-8 rounded-full"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium text-zinc-600">
+                {(investor.name ?? investor.email)[0].toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-zinc-700">
+                {investor.name ?? investor.email}
+              </div>
+              {investor.name && (
+                <div className="truncate text-xs text-zinc-400">
+                  {investor.email}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-600"
+              title="로그아웃"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              const supabase = createClient();
+              supabase.auth.signInWithOAuth({
+                provider: "google",
+                options: { redirectTo: `${location.origin}/auth/callback` },
+              });
+            }}
+            className="flex min-h-[46px] w-full items-center gap-2 rounded-lg px-3 text-sm text-zinc-500 transition-colors hover:bg-white hover:text-zinc-700"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <polyline points="10 17 15 12 10 7" />
+              <line x1="15" y1="12" x2="3" y2="12" />
+            </svg>
+            로그인
+          </button>
         )}
       </div>
     </>

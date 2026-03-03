@@ -1,0 +1,1 @@
+export { useInvestorStore } from "./store";

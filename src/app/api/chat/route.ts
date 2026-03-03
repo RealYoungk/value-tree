@@ -1,10 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleChat } from "@/shared/api/ai";
+import { createClient } from "@/shared/supabase/server";
 
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    // Auth check
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "로그인이 필요합니다." },
+        { status: 401 },
+      );
+    }
+
     const body = await request.json();
     const { message, history, currentValuation } = body;
 
