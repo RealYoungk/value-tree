@@ -1,11 +1,12 @@
 import { generateText, Output } from "ai";
+import { google } from "@ai-sdk/google";
 import { xai } from "@ai-sdk/xai";
 import {
   valuationSchema,
   intentSchema,
   type Valuation,
   type Intent,
-} from "./schemas";
+} from "@/entities/session";
 import {
   SYSTEM_PROMPT,
   buildRouterPrompt,
@@ -16,7 +17,16 @@ import {
 } from "./prompts";
 
 const USE_MOCK = process.env.USE_MOCK === "true";
-const model = xai("grok-3-mini-fast");
+
+const MODELS = {
+  google: () => google(process.env.GOOGLE_MODEL ?? "gemini-2.0-flash"),
+  xai: () => xai(process.env.XAI_MODEL ?? "grok-3-mini-fast"),
+} as const;
+
+type ModelProvider = keyof typeof MODELS;
+
+const provider = (process.env.MODEL_PROVIDER ?? "xai") as ModelProvider;
+const model = MODELS[provider]();
 
 export interface ChatRequest {
   message: string;

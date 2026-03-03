@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleChat } from "@/lib/ai";
+import { handleChat } from "@/shared/api/ai";
 
 export const maxDuration = 60;
 

@@ -1,4 +1,4 @@
-import type { Valuation } from "@/lib/schemas";
+import type { Valuation } from "@/entities/session";
 
 function formatNumber(value: number): string {
   if (Math.abs(value) >= 10000) {

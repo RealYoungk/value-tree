@@ -1,4 +1,4 @@
-import type { Source } from "@/lib/schemas";
+import type { Source } from "@/entities/session";
 
 export function SourceList({ sources }: { sources: Source[] }) {
   if (sources.length === 0) return null;

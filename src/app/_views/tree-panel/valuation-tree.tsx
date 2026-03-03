@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { TreeNode as TreeNodeType } from "@/lib/schemas";
+import type { TreeNode as TreeNodeType } from "@/entities/session";
 import { TreeNode } from "./tree-node";
 
 export function ValuationTree({ tree }: { tree: TreeNodeType }) {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { TreeNode as TreeNodeType } from "@/lib/schemas";
+import type { TreeNode as TreeNodeType } from "@/entities/session";
 import { SourceList } from "./source-list";
 
 interface TreeNodeProps {
