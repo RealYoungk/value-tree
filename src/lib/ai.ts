@@ -1,5 +1,5 @@
-import { generateText, Output, stepCountIs } from "ai";
-import { google } from "@ai-sdk/google";
+import { generateText, Output } from "ai";
+import { xai } from "@ai-sdk/xai";
 import {
   valuationSchema,
   intentSchema,
@@ -15,6 +15,9 @@ import {
   buildUpdatePrompt,
 } from "./prompts";
 
+const USE_MOCK = process.env.USE_MOCK === "true";
+const model = xai("grok-3-mini-fast");
+
 export interface ChatRequest {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
@@ -26,10 +29,206 @@ export interface ChatResponse {
   valuation?: Valuation;
 }
 
+// --- Mock data ---
+function getMockValuation(companyName: string): Valuation {
+  return {
+    companyName,
+    companyCode: companyName === "삼성전자" ? "005930" : "000000",
+    companyMarketCap: 3580000,
+    methodology: "SOTP (Sum-of-the-Parts)",
+    tree: {
+      id: "node-0-0",
+      name: "적정가치",
+      value: 4520000,
+      unit: "억원",
+      formula: "반도체 + 디스플레이 + MX/네트워크 + 하만/기타",
+      description:
+        "삼성전자는 사업부별 특성이 극명하게 다르므로 SOTP가 가장 적합합니다. 반도체는 시클리컬 고성장, 디스플레이는 성숙기, MX는 안정적 캐시카우 성격으로 각각 다른 밸류에이션 배수를 적용해야 합니다.",
+      sources: [],
+      children: [
+        {
+          id: "node-1-0",
+          name: "반도체 (DS) 사업부",
+          value: 3200000,
+          unit: "억원",
+          formula: "영업이익 × EV/EBITDA 배수",
+          description:
+            "HBM 수요 폭발과 AI 서버 투자 사이클에서 메모리 반도체 업황이 구조적으로 개선 중입니다. SK하이닉스 대비 HBM 점유율은 낮지만, 전통 DRAM/NAND에서의 지배적 위치와 파운드리 사업의 옵셔널리티를 반영합니다.",
+          sources: [],
+          children: [
+            {
+              id: "node-2-0",
+              name: "메모리 반도체",
+              value: 2700000,
+              unit: "억원",
+              formula: "영업이익 × 배수",
+              description:
+                "DRAM 시장점유율 약 40%, NAND 약 33%로 양쪽 모두 1~2위. 2025년 HBM3E 양산 본격화로 ASP 상승 기대. 다만 SK하이닉스 대비 HBM 기술 격차(약 6개월)를 할인 요인으로 반영했습니다.",
+              sources: [],
+              children: [
+                {
+                  id: "node-3-0",
+                  name: "영업이익 (메모리)",
+                  value: 270000,
+                  unit: "억원",
+                  formula: null,
+                  description:
+                    "2025E 메모리 영업이익. 컨센서스 범위 25~30조원 중 보수적으로 27조원 채택. DRAM 비트그로스 둔화 가능성과 NAND 재고 조정 리스크를 반영.",
+                  sources: [],
+                  children: [],
+                },
+                {
+                  id: "node-3-1",
+                  name: "적용 배수",
+                  value: 10,
+                  unit: "배",
+                  formula: null,
+                  description:
+                    "글로벌 메모리 피어 평균 EV/EBITDA 8~12배. SK하이닉스 11배, Micron 9배. 삼성은 DRAM 점유율 프리미엄 반영하되 HBM 격차 할인하여 10배 적용.",
+                  sources: [],
+                  children: [],
+                },
+              ],
+            },
+            {
+              id: "node-2-1",
+              name: "파운드리/시스템LSI",
+              value: 500000,
+              unit: "억원",
+              formula: "영업이익 × 배수",
+              description:
+                "파운드리 점유율 약 12%로 TSMC(60%)에 크게 뒤지나, 2nm GAA 공정 전환이 성공하면 재평가 여지. 현재는 적자~BEP 수준이므로 매출 기반 PSR로 보완 평가.",
+              sources: [],
+              children: [
+                {
+                  id: "node-3-2",
+                  name: "매출액 (파운드리)",
+                  value: 200000,
+                  unit: "억원",
+                  formula: null,
+                  description:
+                    "2025E 파운드리+시스템LSI 매출. 퀄컴 등 주요 고객 물량 회복과 GAA 공정 매출 기여 시작 반영.",
+                  sources: [],
+                  children: [],
+                },
+                {
+                  id: "node-3-3",
+                  name: "적용 PSR",
+                  value: 2.5,
+                  unit: "배",
+                  formula: null,
+                  description:
+                    "TSMC PSR 8~10배 대비 대폭 할인. 수율 이슈, 고객 다변화 부족, 적자 지속 리스크 반영. 중장기 턴어라운드 시 상향 여지.",
+                  sources: [],
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "node-1-1",
+          name: "MX/네트워크 사업부",
+          value: 850000,
+          unit: "억원",
+          formula: "영업이익 × PER",
+          description:
+            "갤럭시 시리즈 중심의 스마트폰 사업. 글로벌 점유율 약 20%로 애플과 양강 구도. AI 폰 프리미엄화 전략이 ASP 상승을 견인하나 성장률은 한 자릿수로 성숙기 진입.",
+          sources: [],
+          children: [
+            {
+              id: "node-2-2",
+              name: "영업이익 (MX)",
+              value: 120000,
+              unit: "억원",
+              formula: null,
+              description:
+                "2025E MX 사업부 영업이익. 갤럭시 S25 시리즈 호조와 폴더블 라인업 확대 효과. OPM 약 10% 수준 유지 전망.",
+              sources: [],
+              children: [],
+            },
+            {
+              id: "node-2-3",
+              name: "적용 PER",
+              value: 7,
+              unit: "배",
+              formula: null,
+              description:
+                "애플 PER 30배 대비 대폭 할인. 하드웨어 중심 사업 구조, 생태계 락인 약함, 중국 업체 추격 리스크 반영. 하드웨어 피어(샤오미 등) 8~12배 대비로도 보수적.",
+              sources: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          id: "node-1-2",
+          name: "디스플레이 (SDC) 사업부",
+          value: 350000,
+          unit: "억원",
+          formula: "영업이익 × 배수",
+          description:
+            "OLED 시장 지배적 위치(중소형 점유율 약 50%). 아이폰향 패널이 매출 핵심. IT용 OLED 확대가 새 성장 동력이나 중국 BOE의 추격이 구조적 리스크.",
+          sources: [],
+          children: [
+            {
+              id: "node-2-4",
+              name: "영업이익 (SDC)",
+              value: 50000,
+              unit: "억원",
+              formula: null,
+              description:
+                "2025E 디스플레이 영업이익. 아이폰16 OLED 물량 증가와 IT용 OLED(태블릿/노트북) 신규 매출 반영.",
+              sources: [],
+              children: [],
+            },
+            {
+              id: "node-2-5",
+              name: "적용 배수",
+              value: 7,
+              unit: "배",
+              formula: null,
+              description:
+                "디스플레이 피어(LG디스플레이, BOE) 평균 5~8배. 삼성의 기술 리더십 프리미엄 반영하되 패널 가격 하락 사이클 리스크 감안.",
+              sources: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          id: "node-1-3",
+          name: "하만/기타",
+          value: 120000,
+          unit: "억원",
+          formula: null,
+          description:
+            "하만(차량 인포테인먼트), 의료기기 등. 전체 기업가치에서 비중은 작으나 전장 시장 성장에 따른 옵셔널리티 존재. 별도 DCF 없이 장부가 기준 보수적 평가.",
+          sources: [],
+          children: [],
+        },
+      ],
+    },
+  };
+}
+
 // --- Router: classify user intent ---
 async function routeIntent(req: ChatRequest): Promise<Intent> {
+  if (USE_MOCK) {
+    const msg = req.message.trim();
+    if (req.currentValuation && (msg.includes("바꿔") || msg.includes("수정") || msg.includes("변경") || msg.includes("낮춰") || msg.includes("높여"))) {
+      return { intent: "update", companyName: null };
+    }
+    const isCompanyQuery = msg.length <= 20 && !msg.includes("?") && !msg.includes("뭐") && !msg.includes("왜") && !msg.includes("어떻게");
+    if (isCompanyQuery && !req.currentValuation) {
+      return { intent: "analyze", companyName: msg };
+    }
+    if (isCompanyQuery && req.currentValuation && req.currentValuation.companyName !== msg) {
+      return { intent: "analyze", companyName: msg };
+    }
+    return { intent: "answer", companyName: null };
+  }
+
   const { output } = await generateText({
-    model: google("gemini-2.5-flash"),
+    model,
     output: Output.object({ schema: intentSchema }),
     prompt: buildRouterPrompt(
       req.message,
@@ -42,7 +241,6 @@ async function routeIntent(req: ChatRequest): Promise<Intent> {
     return { intent: "answer", companyName: null };
   }
 
-  // Can't update without an existing tree
   if (output.intent === "update" && !req.currentValuation) {
     return { intent: "answer", companyName: null };
   }
@@ -52,12 +250,19 @@ async function routeIntent(req: ChatRequest): Promise<Intent> {
 
 // --- Answer: text-only response ---
 async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
+  if (USE_MOCK) {
+    if (req.currentValuation) {
+      return { message: `${req.currentValuation.companyName}의 현재 적정가치는 ${req.currentValuation.tree.value.toLocaleString()}억원으로, 시가총액 ${req.currentValuation.companyMarketCap.toLocaleString()}억원 대비 ${(((req.currentValuation.tree.value - req.currentValuation.companyMarketCap) / req.currentValuation.companyMarketCap) * 100).toFixed(1)}% 업사이드가 있습니다. SOTP 기준 반도체 사업부가 전체 가치의 약 70%를 차지합니다.` };
+    }
+    return { message: "안녕하세요! 회사명을 입력하시면 AI 밸류에이션 분석을 시작합니다. 예: 삼성전자, 카카오, 네이버" };
+  }
+
   const treeJson = req.currentValuation
     ? JSON.stringify(req.currentValuation, null, 2)
     : undefined;
 
   const { text } = await generateText({
-    model: google("gemini-2.5-flash"),
+    model,
     system: SYSTEM_PROMPT,
     prompt: buildAnswerPrompt(req.message, req.history, treeJson),
   });
@@ -65,35 +270,32 @@ async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
   return { message: text };
 }
 
-// --- Analyze: new valuation (2-step: search → structure) ---
+// --- Analyze: new valuation (2-step: research → structure) ---
 async function handleAnalyze(
   req: ChatRequest,
   companyName: string,
 ): Promise<ChatResponse> {
-  // Step 1: Research with Google Search
-  const { text: researchText, sources: rawSources } = await generateText({
-    model: google("gemini-2.5-flash"),
+  if (USE_MOCK) {
+    const valuation = getMockValuation(companyName);
+    return {
+      message: `${valuation.companyName}의 밸류에이션 분석을 완료했습니다. ${valuation.methodology} 방법론을 적용했습니다.`,
+      valuation,
+    };
+  }
+
+  // Step 1: Research using model knowledge
+  const { text: researchText } = await generateText({
+    model,
     system: SYSTEM_PROMPT,
-    tools: {
-      google_search: google.tools.googleSearch({}),
-    },
-    stopWhen: stepCountIs(5),
     prompt: buildResearchPrompt(companyName),
   });
 
-  const sources = (rawSources ?? [])
-    .filter((s) => s.sourceType === "url")
-    .map((s) => ({
-      url: (s as { url: string }).url,
-      title: (s as { title?: string }).title,
-    }));
-
   // Step 2: Structure into valuation tree
   const { output } = await generateText({
-    model: google("gemini-2.5-flash"),
+    model,
     system: SYSTEM_PROMPT,
     output: Output.object({ schema: valuationSchema }),
-    prompt: buildStructuringPrompt(companyName, researchText, sources),
+    prompt: buildStructuringPrompt(companyName, researchText, []),
   });
 
   if (!output) {
@@ -108,10 +310,19 @@ async function handleAnalyze(
 
 // --- Update: modify existing tree ---
 async function handleUpdate(req: ChatRequest): Promise<ChatResponse> {
+  if (USE_MOCK) {
+    const updated = JSON.parse(JSON.stringify(req.currentValuation)) as Valuation;
+    updated.tree.description = `${updated.tree.description} (사용자 요청에 따라 수정됨)`;
+    return {
+      message: "밸류에이션 트리를 수정했습니다.",
+      valuation: updated,
+    };
+  }
+
   const treeJson = JSON.stringify(req.currentValuation, null, 2);
 
   const { output } = await generateText({
-    model: google("gemini-2.5-flash"),
+    model,
     system: SYSTEM_PROMPT,
     output: Output.object({ schema: valuationSchema }),
     prompt: buildUpdatePrompt(req.message, treeJson),

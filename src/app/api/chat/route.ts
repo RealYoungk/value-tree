@@ -39,8 +39,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Chat error:", error);
+
+    let errorMessage = "처리에 실패했습니다. 다시 시도해주세요.";
+    if (error instanceof Error) {
+      if (error.message.includes("quota") || error.message.includes("429")) {
+        errorMessage = "API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요.";
+      } else if (error.message.includes("API key")) {
+        errorMessage = "API 키 설정에 문제가 있습니다.";
+      }
+      console.error("Error details:", error.message);
+    }
+
     return NextResponse.json(
-      { error: "처리에 실패했습니다. 다시 시도해주세요." },
+      { error: errorMessage },
       { status: 500 },
     );
   }
