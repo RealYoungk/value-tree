@@ -9,6 +9,7 @@ import {
   useActiveSession,
   useMessages,
   useIsLoading,
+  useLoadingStatus,
 } from "@/entities/session";
 
 interface ChatViewProps {
@@ -30,6 +31,7 @@ export function ChatView({
   const activeSession = useActiveSession();
   const messages = useMessages();
   const isLoading = useIsLoading();
+  const loadingStatus = useLoadingStatus();
   const isEmpty = messages.length === 0 && !activeSession;
 
   return (
@@ -104,7 +106,7 @@ export function ChatView({
                   <div className="flex h-5 w-5 items-center justify-center">
                     <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
                   </div>
-                  <span>데이터를 분석하고 트리를 구성하는 중...</span>
+                  <span>{loadingStatus || "데이터를 분석하고 트리를 구성하는 중..."}</span>
                 </div>
               </div>
             )}

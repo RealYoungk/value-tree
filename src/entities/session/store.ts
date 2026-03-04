@@ -19,11 +19,12 @@ interface SessionStore {
   sessions: Session[];
   activeSessionId: string | null;
   loadingSessionId: string | null;
+  loadingStatus: string | null;
   sessionsLoaded: boolean;
 
   createSession: (companyName: string) => string;
   setActiveSessionId: (id: string | null) => void;
-  setLoadingSessionId: (id: string | null) => void;
+  setLoadingSessionId: (id: string | null, status?: string) => void;
   addMessage: (sessionId: string, msg: ChatMessage) => void;
   updateSession: (sessionId: string, updater: (s: Session) => Session) => void;
   loadSessions: (investorId: string) => Promise<void>;
@@ -38,6 +39,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   loadingSessionId: null,
+  loadingStatus: null,
   sessionsLoaded: false,
 
   createSession: (companyName) => {
@@ -54,7 +56,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setActiveSessionId: (id) => set({ activeSessionId: id }),
 
-  setLoadingSessionId: (id) => set({ loadingSessionId: id }),
+  setLoadingSessionId: (id, status) =>
+    set({ loadingSessionId: id, loadingStatus: status ?? null }),
 
   addMessage: (sessionId, msg) =>
     set((state) => ({
@@ -160,4 +163,8 @@ export function useIsLoading() {
       s.loadingSessionId != null &&
       s.loadingSessionId === s.activeSessionId,
   );
+}
+
+export function useLoadingStatus() {
+  return useSessionStore((s) => s.loadingStatus);
 }

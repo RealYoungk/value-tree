@@ -144,11 +144,56 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
       });
-      const data = await res.json();
+
+      // Non-streaming error (401, 400, etc.)
       if (!res.ok) {
-        throw new Error(data.error || "처리에 실패했습니다.");
+        let errorMsg = "처리에 실패했습니다.";
+        try {
+          const json = await res.json();
+          errorMsg = json.error || errorMsg;
+        } catch { /* ignore parse error */ }
+        throw new Error(errorMsg);
       }
-      return data as { message: string; valuation?: Valuation };
+
+      // Read NDJSON stream
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("스트림을 읽을 수 없습니다.");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: { message: string; valuation?: Valuation } | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === "status") {
+              // Update loading status message
+              const sessionId = mutationSessionRef.current;
+              if (sessionId) {
+                setLoadingSessionId(sessionId, event.message);
+              }
+            } else if (event.type === "result") {
+              result = event.data;
+            } else if (event.type === "error") {
+              throw new Error(event.error);
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message !== line) throw e;
+          }
+        }
+      }
+
+      if (!result) throw new Error("서버에서 결과를 받지 못했습니다.");
+      return result;
     },
     onSuccess: (data) => {
       const sessionId = mutationSessionRef.current;

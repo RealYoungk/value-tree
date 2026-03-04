@@ -283,6 +283,7 @@ async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
 async function handleAnalyze(
   req: ChatRequest,
   companyName: string,
+  onProgress?: (status: string) => void,
 ): Promise<ChatResponse> {
   if (USE_MOCK) {
     const valuation = getMockValuation(companyName);
@@ -293,12 +294,14 @@ async function handleAnalyze(
   }
 
   // Step 0: Fetch real financial data (non-blocking — fallback to LLM-only if fails)
+  onProgress?.(`${companyName}의 시장 데이터를 조회하고 있습니다...`);
   const companyData = await fetchCompanyData(companyName);
   const realData = (companyData.stock || companyData.financials)
     ? { stock: companyData.stock, financials: companyData.financials }
     : undefined;
 
   // Step 1: Research with Google Search grounding (real-time web data)
+  onProgress?.(`${companyName}에 대해 리서치하고 있습니다...`);
   const { text: researchText } = await generateText({
     model: proModel,
     system: SYSTEM_PROMPT,
@@ -309,6 +312,7 @@ async function handleAnalyze(
   });
 
   // Step 2: Structure into valuation tree (strong reasoning, no search)
+  onProgress?.("밸류에이션 트리를 구성하고 있습니다...");
   const { output } = await generateText({
     model: proModel,
     system: SYSTEM_PROMPT,
@@ -363,15 +367,20 @@ async function handleUpdate(req: ChatRequest): Promise<ChatResponse> {
 }
 
 // --- Main orchestrator ---
-export async function handleChat(req: ChatRequest): Promise<ChatResponse> {
+export async function handleChat(
+  req: ChatRequest,
+  onProgress?: (status: string) => void,
+): Promise<ChatResponse> {
+  onProgress?.("의도를 분석하고 있습니다...");
   const intent = await routeIntent(req);
 
   switch (intent.intent) {
     case "answer":
       return handleAnswer(req);
     case "analyze":
-      return handleAnalyze(req, intent.companyName ?? req.message);
+      return handleAnalyze(req, intent.companyName ?? req.message, onProgress);
     case "update":
+      onProgress?.("밸류에이션 트리를 수정하고 있습니다...");
       return handleUpdate(req);
   }
 }
