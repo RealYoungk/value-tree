@@ -188,20 +188,187 @@ async function fetchDartFinancials(
   };
 }
 
+// --- Yahoo Finance: Global stock data (fallback for non-Korean stocks) ---
+
+const KNOWN_TICKERS: Record<string, string> = {
+  "엔비디아": "NVDA", "애플": "AAPL", "테슬라": "TSLA",
+  "마이크로소프트": "MSFT", "구글": "GOOGL", "알파벳": "GOOGL",
+  "아마존": "AMZN", "메타": "META", "넷플릭스": "NFLX",
+  "AMD": "AMD", "인텔": "INTC", "브로드컴": "AVGO",
+  "ASML": "ASML", "TSMC": "TSM", "ARM": "ARM",
+};
+
+// Yahoo Finance requires crumb + cookie auth. Cache them.
+let yahooCrumb: string | null = null;
+let yahooCookies: string | null = null;
+let yahooCrumbExpiry = 0;
+
+async function getYahooCrumb(): Promise<{ crumb: string; cookies: string } | null> {
+  if (yahooCrumb && yahooCookies && Date.now() < yahooCrumbExpiry) {
+    return { crumb: yahooCrumb, cookies: yahooCookies };
+  }
+
+  try {
+    // Step 1: Get cookies from Yahoo
+    const cookieRes = await fetch("https://fc.yahoo.com/", {
+      redirect: "manual",
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    const setCookie = cookieRes.headers.get("set-cookie") || "";
+
+    // Step 2: Get crumb using cookies
+    const crumbRes = await fetch(
+      "https://query2.finance.yahoo.com/v1/test/getcrumb",
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          Cookie: setCookie,
+        },
+      },
+    );
+    if (!crumbRes.ok) return null;
+
+    const crumb = await crumbRes.text();
+    if (!crumb || crumb.includes("<")) return null; // HTML error page
+
+    yahooCrumb = crumb;
+    yahooCookies = setCookie;
+    yahooCrumbExpiry = Date.now() + 30 * 60 * 1000; // cache 30 min
+
+    return { crumb, cookies: setCookie };
+  } catch (err) {
+    console.error("[financial-data] Yahoo crumb error:", err);
+    return null;
+  }
+}
+
+async function resolveYahooTicker(companyName: string): Promise<string | null> {
+  if (KNOWN_TICKERS[companyName]) return KNOWN_TICKERS[companyName];
+  if (/^[A-Z]{1,5}$/.test(companyName)) return companyName;
+
+  try {
+    const auth = await getYahooCrumb();
+    const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0" };
+    if (auth) headers["Cookie"] = auth.cookies;
+
+    const url = new URL("https://query2.finance.yahoo.com/v1/finance/search");
+    url.searchParams.set("q", companyName);
+    url.searchParams.set("quotesCount", "1");
+    url.searchParams.set("newsCount", "0");
+    if (auth) url.searchParams.set("crumb", auth.crumb);
+
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    return json?.quotes?.[0]?.symbol || null;
+  } catch {
+    return null;
+  }
+}
+
+async function searchGlobalStock(
+  companyName: string,
+): Promise<{ stock: StockInfo; financials: FinancialData | null } | null> {
+  try {
+    const ticker = await resolveYahooTicker(companyName);
+    if (!ticker) {
+      console.warn(`[financial-data] Could not resolve ticker for "${companyName}"`);
+      return null;
+    }
+
+    const auth = await getYahooCrumb();
+    if (!auth) {
+      console.warn("[financial-data] Yahoo auth failed, skipping global stock lookup");
+      return null;
+    }
+
+    // Fetch quote + exchange rate in parallel
+    const quoteUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker},KRW%3DX&crumb=${encodeURIComponent(auth.crumb)}`;
+    const res = await fetch(quoteUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Cookie: auth.cookies,
+      },
+    });
+
+    if (!res.ok) {
+      console.error(`[financial-data] Yahoo quote API error: ${res.status}`);
+      return null;
+    }
+
+    const json = await res.json();
+    const results: Array<Record<string, unknown>> = json?.quoteResponse?.result || [];
+    const quote = results.find((r) => r.symbol === ticker);
+    const krwQuote = results.find((r) => r.symbol === "KRW=X");
+
+    if (!quote) return null;
+
+    const currency = (quote.currency as string) || "USD";
+    const krwRate = currency === "KRW" ? 1 : (krwQuote?.regularMarketPrice as number) || 1380;
+
+    const marketCapUsd = (quote.marketCap as number) || 0;
+    const closePriceRaw = (quote.regularMarketPrice as number) || 0;
+    const marketCapEok = Math.round((marketCapUsd * krwRate) / 100_000_000);
+
+    const stock: StockInfo = {
+      stockCode: ticker,
+      stockName: (quote.shortName as string) || (quote.longName as string) || ticker,
+      marketCap: marketCapEok,
+      closePrice: Math.round(closePriceRaw * krwRate),
+      listedShares: (quote.sharesOutstanding as number) || 0,
+    };
+
+    // Extract financials from quote data (limited but available)
+    const revenueRaw = quote.revenue as number | undefined;
+    let financials: FinancialData | null = null;
+    if (revenueRaw) {
+      financials = {
+        revenue: Math.round((revenueRaw * krwRate) / 100_000_000),
+        operatingIncome: null,
+        netIncome: null,
+        totalAssets: null,
+        totalEquity: null,
+        totalDebt: null,
+        year: "TTM",
+        reportType: "TTM",
+      };
+    }
+
+    return { stock, financials };
+  } catch (err) {
+    console.error("[financial-data] searchGlobalStock error:", err);
+    return null;
+  }
+}
+
 // --- Orchestrator ---
 export async function fetchCompanyData(
   companyName: string,
 ): Promise<CompanyData> {
-  const [stock, financials] = await Promise.all([
+  // Try Korean APIs first
+  const [krStock, krFinancials] = await Promise.all([
     searchStock(companyName),
     getFinancials(companyName),
   ]);
 
-  if (stock || financials) {
-    console.log(
-      `[financial-data] ${companyName}: stock=${!!stock}, financials=${!!financials}`,
-    );
+  if (krStock) {
+    console.log(`[financial-data] ${companyName}: KR stock found, marketCap=${krStock.marketCap}억원`);
+    return { stock: krStock, financials: krFinancials };
   }
 
-  return { stock, financials };
+  // Fallback: try Yahoo Finance for global stocks
+  console.log(`[financial-data] ${companyName}: KR not found, trying Yahoo Finance...`);
+  const globalResult = await searchGlobalStock(companyName);
+
+  if (globalResult) {
+    console.log(`[financial-data] ${companyName}: Yahoo found, marketCap=${globalResult.stock.marketCap}억원`);
+    return {
+      stock: globalResult.stock,
+      financials: globalResult.financials ?? krFinancials,
+    };
+  }
+
+  console.log(`[financial-data] ${companyName}: no real data found, LLM-only`);
+  return { stock: null, financials: null };
 }

@@ -1,7 +1,12 @@
-import type { Valuation, TreeNode } from "@/entities/session";
+"use client";
+
+import { useState } from "react";
+import { X, ExternalLink, Lightbulb } from "lucide-react";
+import type { Valuation, TreeNode as TreeNodeType } from "@/entities/session";
 import { SummaryCard } from "./summary-card";
 import { ValuationTree } from "./valuation-tree";
 import { Disclaimer } from "./disclaimer";
+import { SourceList } from "./source-list";
 
 interface TreePanelContentViewProps {
   valuation: Valuation | null;
@@ -12,17 +17,19 @@ export function TreePanelContentView({
   valuation,
   onClose,
 }: TreePanelContentViewProps) {
+  const [selectedNode, setSelectedNode] = useState<TreeNodeType | null>(null);
+
   if (valuation) {
     return (
-      <>
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-3">
+      <div className="flex flex-col h-full relative overflow-hidden bg-white">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-3 shrink-0 bg-white z-10">
           <div>
-            <h2 className="font-semibold">
+            <h2 className="font-semibold text-zinc-900">
               {valuation.companyName}
             </h2>
-            <p className="text-xs text-zinc-500">
-              {valuation.methodology} ·{" "}
-              {valuation.companyCode}
+            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+              {valuation.methodology} · {valuation.companyCode}
             </p>
           </div>
           <button
@@ -30,18 +37,65 @@ export function TreePanelContentView({
             onClick={onClose}
             className="lg:hidden shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600"
           >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M4 4l10 10M14 4L4 14" />
-            </svg>
+            <X className="h-4.5 w-4.5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-hide pb-32">
           <SummaryCard valuation={valuation} />
-          <ValuationTree tree={valuation.tree as TreeNode} />
+          <ValuationTree 
+            tree={valuation.tree as TreeNodeType} 
+            selectedNode={selectedNode}
+            onSelectNode={setSelectedNode}
+          />
           <Disclaimer />
         </div>
-      </>
+
+        {/* Fixed Detail Panel Overlay */}
+        {selectedNode && (
+          <div className="absolute bottom-0 left-0 right-0 z-30 p-4 bg-gradient-to-t from-white via-white/80 to-transparent pt-12 pointer-events-none">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_-8px_30px_rgb(0,0,0,0.12)] animate-in fade-in slide-in-from-bottom-4 duration-300 pointer-events-auto">
+              <div className="mb-4 flex items-start justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
+                    <Lightbulb className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-zinc-900">{selectedNode.name}</h4>
+                    <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">Detail Analysis</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedNode(null)}
+                  className="rounded-full p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="max-h-[30vh] overflow-y-auto space-y-4 pr-1">
+                {selectedNode.description && (
+                  <div className="text-sm leading-relaxed text-zinc-600">
+                    {selectedNode.description}
+                  </div>
+                )}
+
+                {selectedNode.sources.length > 0 && (
+                  <div className="pt-4 border-t border-zinc-100">
+                    <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                      <ExternalLink className="h-3 w-3" />
+                      Sources
+                    </div>
+                    <SourceList sources={selectedNode.sources} />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 

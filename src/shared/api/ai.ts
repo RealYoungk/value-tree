@@ -14,13 +14,16 @@ import {
   buildAnswerPrompt,
   buildUpdatePrompt,
 } from "./prompts";
+import { fetchCompanyData } from "./financial-data";
 import { formatCurrencyUnitsInText, formatKrwFromEok } from "@/shared/utils/currency";
 
 const USE_MOCK = process.env.USE_MOCK === "true";
 
-const MODEL_NAME = process.env.GOOGLE_MODEL ?? "gemini-2.5-flash";
+// Fast model for routing and simple responses
+const fastModel = google(process.env.GOOGLE_MODEL_FAST ?? "gemini-2.5-flash");
 
-const model = google(MODEL_NAME);
+// Pro model for research and structuring (strong reasoning)
+const proModel = google(process.env.GOOGLE_MODEL_PRO ?? "gemini-2.5-pro");
 
 export interface ChatRequest {
   message: string;
@@ -232,7 +235,7 @@ async function routeIntent(req: ChatRequest): Promise<Intent> {
   }
 
   const { output } = await generateText({
-    model,
+    model: fastModel,
     output: Output.object({ schema: intentSchema }),
     prompt: buildRouterPrompt(
       req.message,
@@ -268,7 +271,7 @@ async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
     : undefined;
 
   const { text } = await generateText({
-    model,
+    model: fastModel,
     system: SYSTEM_PROMPT,
     prompt: buildAnswerPrompt(req.message, req.history, treeJson),
   });
@@ -289,23 +292,38 @@ async function handleAnalyze(
     };
   }
 
-  // Step 1: Research using model knowledge
+  // Step 0: Fetch real financial data (non-blocking — fallback to LLM-only if fails)
+  const companyData = await fetchCompanyData(companyName);
+  const realData = (companyData.stock || companyData.financials)
+    ? { stock: companyData.stock, financials: companyData.financials }
+    : undefined;
+
+  // Step 1: Research with Google Search grounding (real-time web data)
   const { text: researchText } = await generateText({
-    model,
+    model: proModel,
     system: SYSTEM_PROMPT,
-    prompt: buildResearchPrompt(companyName),
+    prompt: buildResearchPrompt(companyName, realData),
+    tools: {
+      googleSearch: google.tools.googleSearch({}),
+    },
   });
 
-  // Step 2: Structure into valuation tree
+  // Step 2: Structure into valuation tree (strong reasoning, no search)
   const { output } = await generateText({
-    model,
+    model: proModel,
     system: SYSTEM_PROMPT,
     output: Output.object({ schema: valuationSchema }),
-    prompt: buildStructuringPrompt(companyName, researchText, []),
+    prompt: buildStructuringPrompt(companyName, researchText, [], realData),
   });
 
   if (!output) {
     throw new Error("밸류에이션 트리를 생성하지 못했습니다.");
+  }
+
+  // Override companyMarketCap with real data if available
+  if (companyData.stock) {
+    output.companyMarketCap = companyData.stock.marketCap;
+    output.companyCode = companyData.stock.stockCode;
   }
 
   return {
@@ -328,7 +346,7 @@ async function handleUpdate(req: ChatRequest): Promise<ChatResponse> {
   const treeJson = JSON.stringify(req.currentValuation, null, 2);
 
   const { output } = await generateText({
-    model,
+    model: proModel,
     system: SYSTEM_PROMPT,
     output: Output.object({ schema: valuationSchema }),
     prompt: buildUpdatePrompt(req.message, treeJson),

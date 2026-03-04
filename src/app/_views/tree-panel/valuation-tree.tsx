@@ -4,7 +4,13 @@ import { useState, useMemo } from "react";
 import type { TreeNode as TreeNodeType } from "@/entities/session";
 import { TreeNode } from "./tree-node";
 
-export function ValuationTree({ tree }: { tree: TreeNodeType }) {
+interface ValuationTreeProps {
+  tree: TreeNodeType;
+  selectedNode: TreeNodeType | null;
+  onSelectNode: (node: TreeNodeType | null) => void;
+}
+
+export function ValuationTree({ tree, selectedNode, onSelectNode }: ValuationTreeProps) {
   // Default: root + level 1 expanded
   const initialExpanded = useMemo(() => {
     const set = new Set<string>();
@@ -32,15 +38,17 @@ export function ValuationTree({ tree }: { tree: TreeNodeType }) {
   }
 
   return (
-    <div>
-      <h3 className="mb-3 text-sm font-medium text-zinc-500">
-        밸류에이션 트리
+    <div className="flex flex-col">
+      <h3 className="mb-4 text-sm font-medium text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
+        Valuation Tree
       </h3>
       <TreeNode
         node={tree}
         level={0}
         expanded={expanded}
         onToggle={handleToggle}
+        onShowDetail={onSelectNode}
+        selectedDetailId={selectedNode?.id}
       />
     </div>
   );

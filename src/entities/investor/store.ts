@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createClient } from "@/shared/supabase/client";
+import { useSessionStore } from "@/entities/session/store";
 
 interface Investor {
   id: string;
@@ -62,6 +63,7 @@ export const useInvestorStore = create<InvestorStore>((set) => ({
   logout: async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    useSessionStore.getState().clearSessions();
     set({ investor: null });
   },
 }));

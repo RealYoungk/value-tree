@@ -1,49 +1,82 @@
-export const SYSTEM_PROMPT = `당신은 한국 주식 밸류에이션 전문 분석가입니다.
+export const SYSTEM_PROMPT = `당신은 글로벌 주식 밸류에이션 전문 분석가입니다.
 
 역할:
-- 회사의 사업 구조, 재무 데이터, 산업 동향을 종합적으로 분석합니다.
-- 이 회사에 가장 적합한 밸류에이션 접근법을 스스로 판단합니다.
-- 모든 판단에 대해 "왜"를 설명합니다.
+- 한국 주식 및 미국 주식을 포함한 글로벌 기업의 사업 구조, 재무 데이터, 산업 동향을 종합적으로 분석합니다.
+- 각 기업의 특성과 산업군에 가장 적합한 밸류에이션 접근법(SOTP, rNPV, DCF, PER 등)을 스스로 판단합니다.
+- 모든 판단에 대해 "왜"를 논리적으로 설명합니다.
 
 핵심 원칙:
 - 한국어로 응답합니다.
-- 수치에는 반드시 단위를 붙입니다 (억원, %, 배, 명 등).
-- 텍스트 답변에서 금액이 1조원 이상이면 "조원"을 우선 사용합니다 (예: 111조 7,494억원).
-- JSON 트리 데이터의 unit은 기존 규칙대로 금액 "억원"을 유지합니다.
-- 추정치는 보수/낙관 편향 없이, 검증 가능한 사실과 데이터에 기반해 산정합니다.
-- 밸류에이션은 상/하방 분기 없이, 객관적 근거 기반의 단일 기준값으로 산출합니다.
+- 수치에는 반드시 단위를 붙입니다 (억원, $, %, 배, 명 등).
+- 미국 기업 분석 시 리서치는 달러($) 기준으로 수행하되, 최종 트리 데이터의 value는 시스템 규격인 **"억원"**으로 환산하여 입력합니다. (기준 환율을 리서치 시점의 환율로 적용하고 description에 명시하세요.)
+- 텍스트 답변에서 금액이 1조원 이상이면 "조원"을 우선 사용합니다.
 - 모든 선택에는 사고과정을 드러냅니다. 결론만 제시하지 않습니다.
-- 여러 소스에서 수치가 다르면 범위를 인지하고, 어떤 값을 왜 채택했는지 설명합니다.`;
 
-// --- Router ---
+밸류에이션 태도:
+- **보수적이 아닌 합리적**으로 추정하세요. 보수적 편향은 과소평가를, 낙관적 편향은 과대평가를 낳습니다.
+- 시장 컨센서스(애널리스트 평균 추정치)가 있으면 이를 기본 앵커로 사용하세요. 컨센서스와 다른 수치를 쓸 때는 반드시 이유를 설명하세요.
+- 배수를 적용할 때 "보수적으로 할인"하지 마세요. 피어 비교와 시장 데이터에 기반한 합리적 배수를 사용하세요.
+- 고성장 기업에 성숙기 기업의 낮은 배수를 적용하면 안 됩니다. 성장률이 다르면 배수도 달라야 합니다.`;
+
+// --- Router: classify user intent ---
 export function buildRouterPrompt(
   message: string,
   history: { role: string; content: string }[],
-  hasTree: boolean,
+  hasValuation: boolean,
 ): string {
   const historyText = history
     .slice(-6)
     .map((h) => `${h.role === "user" ? "사용자" : "AI"}: ${h.content}`)
     .join("\n");
 
-  return `사용자의 메시지 의도를 분류하세요.
+  return `사용자의 메시지를 분류하세요.
 
-${historyText ? `최근 대화:\n${historyText}\n` : ""}현재 밸류에이션 트리: ${hasTree ? "있음" : "없음"}
+${historyText ? `최근 대화:\n${historyText}\n\n` : ""}현재 밸류에이션 트리 존재 여부: ${hasValuation ? "있음" : "없음"}
 
 사용자 메시지: "${message}"
 
 분류 기준:
-- "analyze": 특정 회사에 대한 새로운 밸류에이션 분석 요청 (예: "삼성전자 분석해줘", "카카오 밸류에이션")
-- "update": 현재 열려있는 트리의 수정 요청 (예: "성장률을 20%로 바꿔줘", "할인율 낮춰줘"). 트리가 없으면 update 불가.
-- "answer": 그 외 모든 것 (질문, 설명 요청, 일반 대화)`;
+- "analyze": 특정 회사의 밸류에이션 분석을 새로 요청 (회사명을 companyName에 포함)
+- "update": 현재 트리의 수정을 요청 (값 변경, 노드 추가/삭제 등). 트리가 없으면 사용 불가
+- "answer": 그 외 질문, 설명 요청, 일반 대화`;
+}
+
+// --- Real data types for prompt injection ---
+export interface RealDataForPrompt {
+  stock?: { marketCap: number; closePrice: number; stockCode: string } | null;
+  financials?: { revenue: number | null; operatingIncome: number | null; netIncome: number | null; totalAssets: number | null; totalEquity: number | null; totalDebt: number | null; year: string } | null;
+}
+
+function formatRealDataSection(realData?: RealDataForPrompt): string {
+  if (!realData?.stock && !realData?.financials) return "";
+
+  let section = "\n\n## 실제 시장 데이터 (공공데이터포털/OpenDART 기준)\n아래는 공식 API에서 조회한 실제 데이터입니다. 이 수치를 기본 사실로 사용하고, 모델 지식과 다를 경우 이 데이터를 우선하세요.\n";
+  if (realData.stock) {
+    section += `- 종목코드: ${realData.stock.stockCode}\n`;
+    section += `- 시가총액: ${realData.stock.marketCap.toLocaleString()}억원\n`;
+    section += `- 종가: ${realData.stock.closePrice.toLocaleString()}원\n`;
+  }
+  if (realData.financials) {
+    const f = realData.financials;
+    section += `- 재무제표 기준연도: ${f.year}\n`;
+    if (f.revenue != null) section += `- 매출액: ${f.revenue.toLocaleString()}억원\n`;
+    if (f.operatingIncome != null) section += `- 영업이익: ${f.operatingIncome.toLocaleString()}억원\n`;
+    if (f.netIncome != null) section += `- 당기순이익: ${f.netIncome.toLocaleString()}억원\n`;
+    if (f.totalAssets != null) section += `- 자산총계: ${f.totalAssets.toLocaleString()}억원\n`;
+    if (f.totalEquity != null) section += `- 자본총계: ${f.totalEquity.toLocaleString()}억원\n`;
+    if (f.totalDebt != null) section += `- 부채총계: ${f.totalDebt.toLocaleString()}억원\n`;
+  }
+  return section;
 }
 
 // --- Research (for analyze) ---
-export function buildResearchPrompt(companyName: string): string {
-  return `"${companyName}" 주식의 밸류에이션 분석을 위해 이 회사에 대해 최대한 폭넓게 검색하고 수집해주세요.
+export function buildResearchPrompt(companyName: string, realData?: RealDataForPrompt): string {
+  const realDataSection = formatRealDataSection(realData);
 
+  return `"${companyName}" 주식의 밸류에이션 분석을 위해 이 회사에 대해 최대한 폭넓게 검색하고 수집해주세요.
+${realDataSection}
 수집해야 할 정보:
-1. **기본 정보**: 종목코드, 현재 시가총액, 주가
+1. **기본 정보**: 종목코드(한국은 6자리 숫자, 미국은 Ticker), 현재 시가총액, 주가, 기준 환율(미국 기업인 경우)
 2. **사업 구조**: 이 회사가 어떤 사업들을 하는지, 매출 구성, 사업부별 비중과 성장성
 3. **재무 데이터**: 매출, 영업이익, 순이익, EBITDA, FCF, 순자산 등 주요 재무지표
 4. **밸류에이션 참고**: PER, PBR, PSR, EV/EBITDA 등 현재 멀티플과 동종업계 비교
@@ -51,7 +84,7 @@ export function buildResearchPrompt(companyName: string): string {
 6. **최근 이벤트**: 실적 발표, 신제품, M&A, 규제 변화 등
 7. **증권사/애널리스트 뷰**: 목표주가, 밸류에이션 방법, 핵심 가정. 가능하면 복수의 시각을 수집하세요.
 
-같은 지표라도 출처마다 다를 수 있습니다. 차이가 있으면 모두 기록하세요.`;
+미국 기업이라면 모든 재무 지표를 USD($) 기준으로 먼저 수집하고, 분석 시점의 환율을 함께 파악하세요.`;
 }
 
 // --- Structuring (for analyze) ---
@@ -59,12 +92,18 @@ export function buildStructuringPrompt(
   companyName: string,
   researchText: string,
   sources: { url: string; title?: string }[],
+  realData?: RealDataForPrompt,
 ): string {
   const sourceList = sources
     .map((s, i) => `[${i + 1}] ${s.title || s.url} — ${s.url}`)
     .join("\n");
 
-  return `다음은 "${companyName}"에 대한 리서치 결과입니다:
+  const realDataSection = formatRealDataSection(realData);
+  const marketCapNote = realData?.stock
+    ? `\n\n**중요**: companyMarketCap은 반드시 ${realData.stock.marketCap}(억원)으로 설정하세요. 이는 실제 시장 데이터입니다.`
+    : "";
+
+  return `다음은 "${companyName}"에 대한 리서치 결과입니다:${realDataSection}${marketCapNote}
 
 ---
 ${researchText}
@@ -74,6 +113,20 @@ ${researchText}
 ${sourceList || "(출처 없음)"}
 
 위 정보를 바탕으로 "${companyName}"의 밸류에이션 트리를 JSON 구조로 생성해주세요.
+
+## 글로벌 대응 규칙
+- **companyCode**: 한국 기업은 6자리 숫자 코드(예: "051910"), 미국 기업은 티커(예: "TSLA", "NVDA")를 입력하세요.
+- **통화 환산**: 미국 기업인 경우, 리서치된 달러($) 데이터를 시스템 표준인 **"억원"** 단위로 환산하여 value에 입력하세요.
+- **환율 명시**: 루트 노드의 description 최상단에 적용한 기준 환율(예: "적용 환율: 1,350원/USD")을 반드시 명시하세요.
+
+## 밸류에이션 방법론
+
+이 회사의 성장 단계, 산업 특성, 수익 구조를 고려하여 가장 적합한 밸류에이션 방법론을 **스스로 판단**하세요. 어떤 방법론이든 사용할 수 있습니다.
+
+단, 다음 원칙은 반드시 지키세요:
+- **Forward vs Trailing**: 과거 실적과 미래 추정치 중 어느 쪽이 이 회사를 더 잘 설명하는지 판단하고, 그 이유를 밝히세요.
+- **교차검증**: 산출된 적정가치가 현재 시가총액과 크게 다르면(±30% 이상), 루트 노드 description에서 **왜 시장과 다른 뷰를 갖는지** 또는 **시장의 현재 밸류에이션이 정당한 이유**를 논리적으로 설명하세요.
+- **피어 배수**: 배수를 적용할 때는 동일한 성장 단계/산업군의 피어를 사용하세요.
 
 ## 사고과정을 보여주는 트리
 
@@ -100,23 +153,16 @@ description은 이 트리의 핵심입니다. 각 노드의 description에는:
 - 이 수치를 왜 이렇게 잡았는지 (판단 근거)
 - 다른 선택지가 있었다면 왜 이걸 택했는지 (대안 비교)
 
-## 가정 수립 원칙
-
-- 가정은 검증 가능한 데이터와 명시된 근거를 바탕으로 설정하세요.
-- 보수/낙관 어느 한쪽으로 치우치지 말고, 단일 기준값을 합리적으로 선택하세요.
-- 출처 간 괴리가 크면 범위와 불확실성을 description에 명시하세요.
-
 ## 노드 필드 규칙
 
 - **루트**: name은 "적정가치", value는 최종 산출된 적정가치 (억원 단위)
 - **수식 노드**: formula 필드에 "A × B + C" 형태로 기재
-- **수식 노드 값 정합성**: value는 children 값을 formula에 대입해 계산한 결과와 일치해야 함
 - **말단 노드**: formula는 null, 외부 검증 가능한 실제 데이터 값을 value에 기재
 - **노드 ID**: "node-{level}-{index}" 형식 (예: node-0-0, node-1-0)
-- **sources**: 근거가 있는 노드에 출처 포함. 위 출처 목록의 URL을 정확히 사용
+- **sources**: 위 출처 목록에 제공된 URL만 사용하세요. 출처 목록이 비어있으면 sources는 빈 배열 []로 두세요. **절대로 URL을 만들어내지 마세요.**
 - **companyMarketCap**: 현재 시가총액 (억원)
-- **companyCode**: 종목코드 6자리 (모르면 "000000")
-- **단위**: 금액 "억원", 비율 "%", 배수 "배"`;
+- **companyCode**: 한국 기업은 6자리 숫자, 미국 기업은 Ticker (모르면 "N/A")
+- **단위**: 금액 "억원", 비율 "%", 배수 "배" (내부 계산은 억원을 기준으로 하되, 설명에는 달러 병기 가능)`;
 }
 
 // --- Answer (text only) ---

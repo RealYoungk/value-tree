@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
+import { useMutation } from "@tanstack/react-query";
 import {
   useSessionStore,
   useActiveSession,
@@ -8,7 +9,7 @@ import {
   useCurrentValuation,
   useIsLoading,
 } from "@/entities/session";
-import type { ChatMessage } from "@/entities/session";
+import type { ChatMessage, Valuation } from "@/entities/session";
 import { useInvestorStore } from "@/entities/investor";
 import { createClient } from "@/shared/supabase/client";
 import { AppBarView } from "./_views/app-bar";
@@ -129,12 +130,80 @@ export default function ChatPage() {
     }, 100);
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Track which session the current mutation is for
+  const mutationSessionRef = useRef<string | null>(null);
+
+  const chatMutation = useMutation({
+    mutationFn: async (params: {
+      message: string;
+      history: { role: "user" | "assistant"; content: string }[];
+      currentValuation?: Valuation;
+    }) => {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "처리에 실패했습니다.");
+      }
+      return data as { message: string; valuation?: Valuation };
+    },
+    onSuccess: (data) => {
+      const sessionId = mutationSessionRef.current;
+      if (!sessionId) return;
+
+      const assistantMsg: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: data.message,
+      };
+
+      updateSession(sessionId, (s) => ({
+        ...s,
+        messages: [...s.messages, assistantMsg],
+        valuation: data.valuation ?? s.valuation,
+        companyName: data.valuation?.companyName ?? s.companyName,
+      }));
+
+      if (data.valuation) {
+        setTreePanelOpen(true);
+      }
+
+      // Auto-save to DB
+      if (investor) {
+        const updated = useSessionStore
+          .getState()
+          .sessions.find((s) => s.id === sessionId);
+        if (updated) {
+          saveSession(updated, investor.id);
+        }
+      }
+    },
+    onError: (err: Error) => {
+      const sessionId = mutationSessionRef.current;
+      if (!sessionId) return;
+
+      const errorMsg: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: "assistant",
+        content: err.message || "처리에 실패했습니다.",
+      };
+      addMessage(sessionId, errorMsg);
+    },
+    onSettled: () => {
+      setLoadingSessionId(null);
+      scrollToBottom();
+      inputRef.current?.focus();
+    },
+  });
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isLoading || chatMutation.isPending) return;
 
-    // Gate: require login
     if (!isLoggedIn) {
       setLoginDialogOpen(true);
       return;
@@ -155,6 +224,7 @@ export default function ChatPage() {
       content: trimmed,
     };
 
+    mutationSessionRef.current = sessionId;
     setLoadingSessionId(sessionId);
 
     const historyMsgs = isNewSession
@@ -164,60 +234,11 @@ export default function ChatPage() {
     addMessage(sessionId!, userMsg);
     scrollToBottom();
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: trimmed,
-          history: historyMsgs,
-          currentValuation,
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "처리에 실패했습니다.");
-      }
-
-      const assistantMsg: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: data.message,
-      };
-
-      updateSession(sessionId!, (s) => ({
-        ...s,
-        messages: [...s.messages, assistantMsg],
-        valuation: data.valuation ?? s.valuation,
-        companyName: data.valuation?.companyName ?? s.companyName,
-      }));
-
-      if (data.valuation) {
-        setTreePanelOpen(true);
-      }
-
-      // Auto-save to DB
-      if (investor) {
-        const updated = useSessionStore
-          .getState()
-          .sessions.find((s) => s.id === sessionId);
-        if (updated) {
-          saveSession(updated, investor.id);
-        }
-      }
-    } catch (err) {
-      const errorMsg: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: "assistant",
-        content: err instanceof Error ? err.message : "처리에 실패했습니다.",
-      };
-      addMessage(sessionId!, errorMsg);
-    } finally {
-      setLoadingSessionId(null);
-      scrollToBottom();
-      inputRef.current?.focus();
-    }
+    chatMutation.mutate({
+      message: trimmed,
+      history: historyMsgs,
+      currentValuation: currentValuation ?? undefined,
+    });
   }
 
   function handleSelectSession(id: string, hasValuation: boolean) {
