@@ -74,6 +74,49 @@ function LoginDialog({
   );
 }
 
+// Helper: read NDJSON stream, dispatch status events, return result/intent
+async function readNdjsonStream(
+  res: Response,
+  onStatus: (msg: string) => void,
+): Promise<{ result?: Record<string, unknown>; intent?: { intent: string; companyName: string } }> {
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("스트림을 읽을 수 없습니다.");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: Record<string, unknown> | undefined;
+  let intent: { intent: string; companyName: string } | undefined;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event.type === "status") {
+          onStatus(event.message);
+        } else if (event.type === "result") {
+          result = event.data;
+        } else if (event.type === "intent") {
+          intent = event.data;
+        } else if (event.type === "error") {
+          throw new Error(event.error);
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message !== line) throw e;
+      }
+    }
+  }
+
+  return { result, intent };
+}
+
 export default function ChatPage() {
   // UI state (local)
   const [input, setInput] = useState("");
@@ -139,61 +182,85 @@ export default function ChatPage() {
       history: { role: "user" | "assistant"; content: string }[];
       currentValuation?: Valuation;
     }) => {
-      const res = await fetch("/api/chat", {
+      const sessionId = mutationSessionRef.current;
+      const updateStatus = (msg: string) => {
+        if (sessionId) setLoadingSessionId(sessionId, msg);
+      };
+
+      // Step 1: Route intent via /api/chat
+      const chatRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
       });
 
-      // Non-streaming error (401, 400, etc.)
-      if (!res.ok) {
+      if (!chatRes.ok) {
         let errorMsg = "처리에 실패했습니다.";
         try {
-          const json = await res.json();
+          const json = await chatRes.json();
           errorMsg = json.error || errorMsg;
         } catch { /* ignore parse error */ }
         throw new Error(errorMsg);
       }
 
-      // Read NDJSON stream
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("스트림을 읽을 수 없습니다.");
+      const chatStream = await readNdjsonStream(chatRes, updateStatus);
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let result: { message: string; valuation?: Valuation } | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === "status") {
-              // Update loading status message
-              const sessionId = mutationSessionRef.current;
-              if (sessionId) {
-                setLoadingSessionId(sessionId, event.message);
-              }
-            } else if (event.type === "result") {
-              result = event.data;
-            } else if (event.type === "error") {
-              throw new Error(event.error);
-            }
-          } catch (e) {
-            if (e instanceof Error && e.message !== line) throw e;
-          }
-        }
+      // If not an analyze intent, return the direct result
+      if (!chatStream.intent) {
+        if (!chatStream.result) throw new Error("서버에서 결과를 받지 못했습니다.");
+        return chatStream.result as { message: string; valuation?: Valuation };
       }
 
-      if (!result) throw new Error("서버에서 결과를 받지 못했습니다.");
-      return result;
+      // Step 2: Analyze flow — call /api/chat/research
+      const { companyName } = chatStream.intent;
+
+      const researchRes = await fetch("/api/chat/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyName }),
+      });
+
+      if (!researchRes.ok) {
+        let errorMsg = "리서치에 실패했습니다.";
+        try {
+          const json = await researchRes.json();
+          errorMsg = json.error || errorMsg;
+        } catch { /* ignore */ }
+        throw new Error(errorMsg);
+      }
+
+      const researchStream = await readNdjsonStream(researchRes, updateStatus);
+
+      if (!researchStream.result) throw new Error("리서치 결과를 받지 못했습니다.");
+      const researchResult = researchStream.result as {
+        researchText: string;
+        realData?: Record<string, unknown>;
+      };
+
+      // Step 3: Call /api/chat/structure with research results
+      const structureRes = await fetch("/api/chat/structure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName,
+          researchText: researchResult.researchText,
+          realData: researchResult.realData,
+        }),
+      });
+
+      if (!structureRes.ok) {
+        let errorMsg = "밸류에이션 구조화에 실패했습니다.";
+        try {
+          const json = await structureRes.json();
+          errorMsg = json.error || errorMsg;
+        } catch { /* ignore */ }
+        throw new Error(errorMsg);
+      }
+
+      const structureStream = await readNdjsonStream(structureRes, updateStatus);
+
+      if (!structureStream.result) throw new Error("밸류에이션 결과를 받지 못했습니다.");
+      return structureStream.result as { message: string; valuation: Valuation };
     },
     onSuccess: (data) => {
       const sessionId = mutationSessionRef.current;

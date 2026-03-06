@@ -19,10 +19,9 @@ import { formatCurrencyUnitsInText, formatKrwFromEok } from "@/shared/utils/curr
 
 const USE_MOCK = process.env.USE_MOCK === "true";
 
-// Fast model for routing and simple responses
+// Fast model for routing, answer, research (flash for speed)
 const fastModel = google(process.env.GOOGLE_MODEL_FAST ?? "gemini-2.5-flash");
-
-// Pro model for research and structuring (strong reasoning)
+// Pro model for structuring (better schema generation, faster than flash for structured output)
 const proModel = google(process.env.GOOGLE_MODEL_PRO ?? "gemini-2.5-pro");
 
 export interface ChatRequest {
@@ -279,31 +278,37 @@ async function handleAnswer(req: ChatRequest): Promise<ChatResponse> {
   return { message: formatCurrencyUnitsInText(text) };
 }
 
-// --- Analyze: new valuation (2-step: research → structure) ---
-async function handleAnalyze(
-  req: ChatRequest,
+// --- Research: fetch data + LLM research (called by /api/chat/research) ---
+export interface ResearchResult {
+  researchText: string;
+  realData?: {
+    stock?: { marketCap: number; closePrice: number; stockCode: string; stockName: string; listedShares: number } | null;
+    financials?: { revenue: number | null; operatingIncome: number | null; netIncome: number | null; totalAssets: number | null; totalEquity: number | null; totalDebt: number | null; year: string; reportType: string } | null;
+  };
+}
+
+export async function handleResearch(
   companyName: string,
   onProgress?: (status: string) => void,
-): Promise<ChatResponse> {
+): Promise<ResearchResult> {
   if (USE_MOCK) {
-    const valuation = getMockValuation(companyName);
     return {
-      message: `${valuation.companyName}의 밸류에이션 분석을 완료했습니다. ${valuation.methodology} 방법론을 적용했습니다.`,
-      valuation,
+      researchText: `${companyName}에 대한 mock 리서치 결과입니다.`,
+      realData: undefined,
     };
   }
 
-  // Step 0: Fetch real financial data (non-blocking — fallback to LLM-only if fails)
+  // Fetch real financial data
   onProgress?.(`${companyName}의 시장 데이터를 조회하고 있습니다...`);
   const companyData = await fetchCompanyData(companyName);
   const realData = (companyData.stock || companyData.financials)
     ? { stock: companyData.stock, financials: companyData.financials }
     : undefined;
 
-  // Step 1: Research with Google Search grounding (real-time web data)
+  // Research with Google Search grounding
   onProgress?.(`${companyName}에 대해 리서치하고 있습니다...`);
   const { text: researchText } = await generateText({
-    model: proModel,
+    model: fastModel,
     system: SYSTEM_PROMPT,
     prompt: buildResearchPrompt(companyName, realData),
     tools: {
@@ -311,13 +316,39 @@ async function handleAnalyze(
     },
   });
 
-  // Step 2: Structure into valuation tree (strong reasoning, no search)
+  return { researchText, realData };
+}
+
+// --- Structure: build valuation tree from research (called by /api/chat/structure) ---
+export interface StructureRequest {
+  companyName: string;
+  researchText: string;
+  realData?: ResearchResult["realData"];
+}
+
+export interface StructureResult {
+  message: string;
+  valuation: Valuation;
+}
+
+export async function handleStructure(
+  req: StructureRequest,
+  onProgress?: (status: string) => void,
+): Promise<StructureResult> {
+  if (USE_MOCK) {
+    const valuation = getMockValuation(req.companyName);
+    return {
+      message: `${valuation.companyName}의 밸류에이션 분석을 완료했습니다. ${valuation.methodology} 방법론을 적용했습니다.`,
+      valuation,
+    };
+  }
+
   onProgress?.("밸류에이션 트리를 구성하고 있습니다...");
   const { output } = await generateText({
     model: proModel,
     system: SYSTEM_PROMPT,
     output: Output.object({ schema: valuationSchema }),
-    prompt: buildStructuringPrompt(companyName, researchText, [], realData),
+    prompt: buildStructuringPrompt(req.companyName, req.researchText, [], req.realData),
   });
 
   if (!output) {
@@ -325,9 +356,9 @@ async function handleAnalyze(
   }
 
   // Override companyMarketCap with real data if available
-  if (companyData.stock) {
-    output.companyMarketCap = companyData.stock.marketCap;
-    output.companyCode = companyData.stock.stockCode;
+  if (req.realData?.stock) {
+    output.companyMarketCap = req.realData.stock.marketCap;
+    output.companyCode = req.realData.stock.stockCode;
   }
 
   return {
@@ -350,7 +381,7 @@ async function handleUpdate(req: ChatRequest): Promise<ChatResponse> {
   const treeJson = JSON.stringify(req.currentValuation, null, 2);
 
   const { output } = await generateText({
-    model: proModel,
+    model: fastModel,
     system: SYSTEM_PROMPT,
     output: Output.object({ schema: valuationSchema }),
     prompt: buildUpdatePrompt(req.message, treeJson),
@@ -367,20 +398,29 @@ async function handleUpdate(req: ChatRequest): Promise<ChatResponse> {
 }
 
 // --- Main orchestrator ---
+// For "analyze" intent, returns { intent: "analyze", companyName } so the client
+// can call /api/chat/research and /api/chat/structure separately (Vercel 60s timeout fix).
+export type ChatResult =
+  | { type: "response"; data: ChatResponse }
+  | { type: "intent"; data: { intent: "analyze"; companyName: string } };
+
 export async function handleChat(
   req: ChatRequest,
   onProgress?: (status: string) => void,
-): Promise<ChatResponse> {
+): Promise<ChatResult> {
   onProgress?.("의도를 분석하고 있습니다...");
   const intent = await routeIntent(req);
 
   switch (intent.intent) {
     case "answer":
-      return handleAnswer(req);
+      return { type: "response", data: await handleAnswer(req) };
     case "analyze":
-      return handleAnalyze(req, intent.companyName ?? req.message, onProgress);
+      return {
+        type: "intent",
+        data: { intent: "analyze", companyName: intent.companyName ?? req.message },
+      };
     case "update":
       onProgress?.("밸류에이션 트리를 수정하고 있습니다...");
-      return handleUpdate(req);
+      return { type: "response", data: await handleUpdate(req) };
   }
 }

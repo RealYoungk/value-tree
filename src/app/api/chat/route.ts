@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const result = await handleChat(
+        const chatResult = await handleChat(
           {
             message: trimmed,
             history: Array.isArray(history) ? history.slice(-20) : [],
@@ -78,7 +78,12 @@ export async function POST(request: NextRequest) {
           (status) => send({ type: "status", message: status }),
         );
 
-        send({ type: "result", data: result });
+        if (chatResult.type === "intent") {
+          // Client will handle analyze flow via /api/chat/research + /api/chat/structure
+          send({ type: "intent", data: chatResult.data });
+        } else {
+          send({ type: "result", data: chatResult.data });
+        }
       } catch (error) {
         const errorDetail =
           error instanceof Error ? error.message : String(error);
