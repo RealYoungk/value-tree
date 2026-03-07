@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Value Tree</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+
+  body {
+    font-family: 'Pretendard', -apple-system, sans-serif;
+    color: #222;
+    background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 24mm 26mm 18mm 26mm;
+    position: relative;
+  }
+
+  /* --- Header --- */
+  .top {
+    margin-bottom: 22px;
+  }
+
+  .top h1 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+  }
+
+  .top .sub {
+    font-size: 13px;
+    color: #888;
+    margin-top: 2px;
+  }
+
+  .divider {
+    border: none;
+    border-top: 1.5px solid #222;
+    margin: 14px 0 18px 0;
+  }
+
+  /* --- Sections --- */
+  h2 {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #222;
+  }
+
+  p, li {
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: #444;
+  }
+
+  .block {
+    margin-bottom: 18px;
+  }
+
+  .block p + p {
+    margin-top: 6px;
+  }
+
+  /* --- Two col --- */
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  /* --- Quiet list --- */
+  .q-list {
+    list-style: none;
+    padding: 0;
+    margin-top: 4px;
+  }
+
+  .q-list li {
+    padding: 2px 0;
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .q-list li::before {
+    content: "·";
+    position: absolute;
+    left: 2px;
+    color: #aaa;
+    font-weight: 700;
+  }
+
+  /* --- Numbers row --- */
+  .nums {
+    display: flex;
+    gap: 0;
+    margin-top: 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .nums .n {
+    flex: 1;
+    padding: 10px 12px;
+    border-right: 1px solid #e0e0e0;
+  }
+
+  .nums .n:last-child {
+    border-right: none;
+  }
+
+  .nums .n .val {
+    font-size: 15px;
+    font-weight: 800;
+    color: #222;
+  }
+
+  .nums .n .lbl {
+    font-size: 10px;
+    color: #999;
+    margin-top: 1px;
+  }
+
+  /* --- Timeline --- */
+  .timeline {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    margin-top: 8px;
+  }
+
+  .tl-item {
+    flex: 1;
+    position: relative;
+    padding: 0 8px;
+  }
+
+  .tl-item::before {
+    content: "";
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ccc;
+    margin-bottom: 6px;
+  }
+
+  .tl-item.now::before {
+    background: #222;
+  }
+
+  .tl-item .tl-when {
+    font-size: 10px;
+    font-weight: 700;
+    color: #999;
+  }
+
+  .tl-item.now .tl-when {
+    color: #222;
+  }
+
+  .tl-item .tl-what {
+    font-size: 11px;
+    color: #666;
+    line-height: 1.45;
+    margin-top: 2px;
+  }
+
+  /* --- Footer --- */
+  .foot {
+    position: absolute;
+    bottom: 16mm;
+    left: 26mm;
+    right: 26mm;
+    font-size: 10px;
+    color: #bbb;
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid #eee;
+    padding-top: 8px;
+  }
+
+  .accent {
+    color: #222;
+    font-weight: 600;
+  }
+
+  .muted {
+    color: #999;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="top">
+    <h1>Value Tree</h1>
+    <div class="sub">[대표자명] · 2026. 03 · 투자검토용</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- 한 줄 요약 -->
+  <div class="block">
+    <p>
+      회사명을 입력하면 AI가 <span class="accent">밸류에이션 트리</span>를 만들어주는 웹 서비스입니다.<br>
+      증권사 리포트처럼 숫자만 던지는 게 아니라, 왜 이 값이 나왔는지를 트리 구조로 보여줍니다.
+    </p>
+  </div>
+
+  <!-- 왜 만들고 있는가 -->
+  <div class="block">
+    <h2>왜 만들고 있는가</h2>
+    <p>
+      SR투자파트너스에서 투자 검토를 하면서 느낀 건, 기업가치 평가라는 게 결국 소수의 전문가만 할 수 있는 작업이라는 겁니다.
+      개인투자자 1,400만 명 시대인데, 정작 "이 회사가 비싼 건지 싼 건지"를 스스로 판단할 수 있는 도구가 없습니다.
+    </p>
+    <p>
+      ChatGPT한테 물어보면 그럴듯한 숫자는 나옵니다. 근데 그 숫자가 어디서 온 건지, 배수는 왜 10배인지 알 수가 없어요.
+      결국 <span class="accent">근거를 추적할 수 있는 구조</span>가 필요하다고 생각했습니다.
+    </p>
+  </div>
+
+  <!-- 어떻게 작동하는가 -->
+  <div class="row">
+    <div class="block">
+      <h2>작동 방식</h2>
+      <p>"삼성전자" 라고 치면 이런 일이 일어납니다:</p>
+      <ul class="q-list">
+        <li>공공데이터포털·DART에서 실제 재무데이터 조회</li>
+        <li>Google Search로 최신 뉴스·리포트 실시간 수집</li>
+        <li>AI가 기업 특성에 맞는 방법론(SOTP, DCF 등) 선택</li>
+        <li>모든 가정과 계산을 트리 구조로 시각화</li>
+        <li>"배수를 12배로 바꿔줘" 하면 즉시 재계산</li>
+      </ul>
+      <p class="muted" style="margin-top: 6px;">한국·미국 주식 모두 지원. 분석 소요시간 약 90초.</p>
+    </div>
+
+    <div class="block">
+      <h2>기존 대안과의 차이</h2>
+      <p>핵심은 <span class="accent">"왜?"가 보인다</span>는 겁니다.</p>
+      <ul class="q-list">
+        <li>증권사 리포트 — 결론만 있고, 가정을 바꿔볼 수 없음</li>
+        <li>Bloomberg — 연 3천만원, 개인은 접근 불가</li>
+        <li>ChatGPT — 출처 불명, 숫자의 근거를 추적 못함</li>
+        <li>Value Tree — 모든 노드에 근거·출처·사고과정 표시, 직접 수정 가능</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 숫자 -->
+  <div class="block">
+    <h2>시장</h2>
+    <div class="nums">
+      <div class="n">
+        <div class="val">1,423만</div>
+        <div class="lbl">국내 개인투자자 (2024)</div>
+      </div>
+      <div class="n">
+        <div class="val">$61B</div>
+        <div class="lbl">AI 핀테크 시장 2031E</div>
+      </div>
+      <div class="n">
+        <div class="val">0개</div>
+        <div class="lbl">한국어 AI 밸류에이션 도구</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BM -->
+  <div class="row">
+    <div class="block">
+      <h2>수익 모델 (구상 중)</h2>
+      <p>
+        분석 건수 기반 과금이 자연스럽다고 보고 있습니다.
+        무료로 월 2~3회 써보게 하고, 그 이상은 유료 전환.
+      </p>
+      <p>
+        더 먼 그림으로는 증권사·핀테크에 API로 제공하는 B2B도 생각하고 있지만, 우선은 개인 사용자 반응을 먼저 확인하려 합니다.
+      </p>
+    </div>
+
+    <div class="block">
+      <h2>현재 단계와 계획</h2>
+      <div class="timeline">
+        <div class="tl-item now">
+          <div class="tl-when">지금</div>
+          <div class="tl-what">프로토타입 완성<br>분석 로직 고도화</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-when">'26 상반기</div>
+          <div class="tl-what">베타 오픈<br>초기 사용자 확보</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-when">'26 하반기</div>
+          <div class="tl-what">정식 런칭<br>유료 전환 테스트</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 팀 -->
+  <div class="block">
+    <h2>만드는 사람</h2>
+    <p>
+      <span class="accent">[대표자명]</span> — 1인 개발 중.
+      이전에 Flutter·React·Spring 기반으로 <span class="accent">누적 570만 회원, 연 거래액 1,000억+</span> 규모의 서비스를 설계·운영했습니다.
+      앱스토어·플레이스토어 스포츠 카테고리 1, 2위를 찍어봤고,
+      지금은 SR투자파트너스에서 투자 심사를 하면서 이 서비스의 필요성을 직접 느꼈습니다.
+    </p>
+    <p>
+      개발부터 배포까지 혼자 빠르게 돌릴 수 있는 게 현 시점의 강점이라고 생각합니다.
+    </p>
+  </div>
+
+  <!-- Ask -->
+  <div class="block">
+    <h2>김기사랩에 기대하는 것</h2>
+    <p>
+      아직 투자 규모를 특정하기보다는, 제품을 같이 봐주실 분들이 필요합니다.
+      로직 고도화와 베타 운영에 필요한 초기 자금(AI API 비용 + 운영비)과 함께,
+      김기사랩 네트워크를 통한 초기 사용자 확보·피드백에 도움을 받고 싶습니다.
+    </p>
+  </div>
+
+  <div class="foot">
+    <span>[대표자명] · [이메일] · [연락처]</span>
+    <span>value-tree.vercel.app</span>
+  </div>
+
+</div>
+</body>
+</html>

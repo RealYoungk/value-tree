@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleChat } from "@/shared/api/ai";
 import { createClient } from "@/shared/supabase/server";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   // Auth check (non-streaming errors)
